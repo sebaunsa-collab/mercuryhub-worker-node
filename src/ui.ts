@@ -97,7 +97,8 @@ export const getDashboardHtml = (agencyId: string) => `
             switch(status) {
                 case 'initializing': el.innerText = 'Cargando núcleo...'; break;
                 case 'authenticating': el.innerText = 'Validando licencia...'; break;
-                case 'initializing_engine': el.innerText = 'Encendiendo motor...'; break;
+                case 'ready_to_boot': el.innerText = 'Licencia validada. Esperando ignición.'; break;
+                case 'initializing_engine': el.innerText = 'Encendiendo motor criptográfico...'; el.style.color = '#E8DCC4'; break;
                 case 'qr': el.innerText = 'Esperando escaneo...'; break;
                 case 'ready': el.innerText = 'Conectado'; el.style.color = '#4ade80'; break;
                 case 'auth_failed': el.innerText = 'Error de licencia'; el.style.color = '#f87171'; break;
@@ -122,6 +123,17 @@ export const getDashboardHtml = (agencyId: string) => `
             }
         };
 
+        const startEngine = async () => {
+            const btn = document.getElementById('start-btn');
+            if (btn) btn.innerHTML = 'Haciendo Ignición...';
+            try {
+                await fetch('/api/start-engine', { method: 'POST' });
+                // El proximo checkStatus cambiará la UI automáticamente a loading
+            } catch (err) {
+                console.error(err);
+            }
+        };
+
         const checkStatus = async () => {
             try {
                 const res = await fetch('/api/status');
@@ -132,6 +144,32 @@ export const getDashboardHtml = (agencyId: string) => `
                 }
 
                 updateStatusText(data.status);
+
+                if (data.status === 'ready_to_boot') {
+                    if (lastStatus !== 'ready_to_boot') {
+                        document.getElementById('status-container').innerHTML = \`
+                            <div style="width: 60px; height: 60px; background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 24px">
+                                <svg style="width: 30px; height: 30px; color: #38bdf8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                            </div>
+                            <button id="start-btn" onclick="startEngine()" style="background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif; box-shadow: 0 4px 14px 0 rgba(14, 165, 233, 0.39); transition: all 0.2s; margin-bottom: 8px">
+                                Encender Antena
+                            </button>
+                            <p id="status-text" style="font-size: 11px; color: #94a3b8; margin: 0">Listo para generar el QR de conexión.</p>
+                        \`;
+                        lastStatus = 'ready_to_boot';
+                    }
+                }
+
+                if (data.status === 'initializing_engine') {
+                     if (lastStatus !== 'initializing_engine') {
+                        document.getElementById('status-container').innerHTML = \`
+                            <div class="loader" style="margin-bottom: 24px"></div>
+                            <p id="status-text" style="font-size: 12px; color: #E8DCC4; animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite">Encendiendo motor criptográfico...</p>
+                            <p style="font-size: 10px; color: #94a3b8; margin-top: 8px">Esto tomará unos segundos...</p>
+                        \`;
+                        lastStatus = 'initializing_engine';
+                     }
+                }
 
                 if (data.status === 'ready') {
                     if (lastStatus !== 'ready') {

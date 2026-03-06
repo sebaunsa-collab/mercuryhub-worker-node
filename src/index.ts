@@ -104,7 +104,7 @@ const main = async () => {
         const { agencyId, tenantSlug } = authResponse.data;
         const instanceName = authResponse.data.instanceName || agencyId;
         globalAgencyId = agencyId;
-        connectionStatus = 'initializing_engine';
+        connectionStatus = 'ready_to_boot';
         addLog(`✅ Licencia validada para ${tenantSlug} (${agencyId})`);
 
         // Evolution API Mirror endpoints
@@ -127,9 +127,19 @@ const main = async () => {
             }
         });
 
-        // 2. DELAYED BOT ENGINE (Estrategia Anti-Crash para Render)
-        // Esperamos 8 segundos para que el sistema esté estable antes de la carga pesada.
-        setTimeout(async () => {
+        // 2. LAZY BOT ENGINE (Iniciado por comando del usuario en la UI)
+        let isEngineBooting = false;
+
+        app.post('/api/start-engine', async (req, res) => {
+            if (isEngineBooting || connectionStatus === 'qr' || connectionStatus === 'ready') {
+                return res.status(200).json({ success: true, message: 'El motor ya está corriendo o iniciando.' });
+            }
+
+            isEngineBooting = true;
+            connectionStatus = 'initializing_engine';
+            addLog('⚡ [NODO] Solicitud de Encendido Manual Recibida.');
+            res.status(200).json({ success: true });
+
             try {
                 addLog('🤖 Iniciando motor Baileys (Multi-Device)...');
 
@@ -156,6 +166,7 @@ const main = async () => {
                 provider.on('auth_failure', (err) => {
                     addLog(`❌ [MOTOR] Error de Auth: ${JSON.stringify(err)}`);
                     connectionStatus = 'auth_failed';
+                    isEngineBooting = false;
                 });
 
                 const bridgeFlow = addKeyword(EVENTS.WELCOME)
@@ -193,8 +204,10 @@ const main = async () => {
 
             } catch (err: any) {
                 addLog(`❌ Error en Engine Init: ${err.message}`);
+                connectionStatus = 'error';
+                isEngineBooting = false;
             }
-        }, 8000);
+        });
 
     } catch (e: any) {
         addLog(`❌ Error Crítico: ${e.message}`);
