@@ -3,15 +3,17 @@ version: '3.8'
 services:
   crmercury-worker:
     build: .
+    container_name: crmercury-worker-node
     restart: always
     environment:
       - NODE_ENV=production
       - MERCURY_LICENSE_KEY=${MERCURY_LICENSE_KEY}
-      - MERCURY_API_URL=${MERCURY_API_URL:-https://app.crmercury.com/api}
+      - MERCURY_API_URL=${MERCURY_API_URL:-https://crm.mercuryhub.com.ar/api}
+      - PORT=10000
     volumes:
-      - session_data:/app/session
+      - ./.baileys_auth:/app/.baileys_auth
     ports:
-      - "3008:3008"
+      - "10000:10000"
 
 volumes:
-  session_data:
+  baileys_auth_data:
