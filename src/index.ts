@@ -45,7 +45,7 @@ const main = async () => {
         let authResponse;
         const cleanApiUrl = API_URL.replace(/\/$/, "");
 
-        // 2. Handshake Central (Solo para licencia y config)
+        // 2. Handshake Central
         console.log(`🔄 Sincronizando con El Oráculo...`);
         connectionStatus = 'authenticating';
 
@@ -63,11 +63,10 @@ const main = async () => {
 
         const agencyId = authResponse.data.agencyId;
         const instanceName = authResponse.data.instanceName || agencyId;
-        globalAgencyId = agencyId; // Update UI
-        connectionStatus = 'initializing_engine';
+        globalAgencyId = agencyId;
         console.log('✅ Licencia Válida. Agency:', agencyId);
 
-        // 3. Evolution API Mirror endpoints para escritura directa local
+        // 3. Middlewares y Endpoints
         const evolutionAuthGuard = (req: any, res: any, next: any) => {
             const apiKey = req.headers['apikey'];
             if (apiKey !== MERCURY_LICENSE_KEY) {
@@ -81,70 +80,38 @@ const main = async () => {
                 const { number, text } = req.body;
                 if (!number || !text) return res.status(400).send({ error: 'Missing number or text' });
                 const cleanNumber = number.includes('@') ? number : `${number}@s.whatsapp.net`;
-
                 await (global as any).baileysProvider?.sendMessage(cleanNumber, text, {});
-                console.log(`📡 [Outbound] Enviado a ${number}`);
                 res.status(200).send({ key: { id: Date.now().toString() } });
             } catch (err: any) {
-                console.error('Error sendText:', err.message);
                 res.status(500).send({ error: err.message });
             }
         });
 
-        app.post('/chat/sendPresence/:instance', evolutionAuthGuard, async (req, res) => {
-            try {
-                const { number, presence } = req.body;
-                const cleanNumber = number.includes('@') ? number : `${number}@s.whatsapp.net`;
-                if (presence === 'composing') {
-                    await (global as any).baileysProvider?.vendor?.sendPresenceUpdate('composing', cleanNumber);
-                }
-                res.status(200).send({ success: true });
-            } catch (err) {
-                res.status(200).send({ success: false });
-            }
-        });
-
-        app.put('/chat/markMessageAsRead/:instance', evolutionAuthGuard, async (req, res) => {
-            res.status(200).send({ success: true });
-        });
-
-        app.post('/webhook/local', (req, res) => {
-            if (validateWebhookData(req.body)) {
-                console.log('📡 Capturando evento local para Agencia:', agencyId);
-                res.status(200).send({ success: true });
-            } else {
-                res.status(400).send({ error: 'Invalid payload' });
-            }
-        });
-
-        // 4. Inicialización de WhatsApp
+        // 4. Inicialización de WhatsApp (Estrategia Paralela)
         console.log('🤖 Inicializando motor WhatsApp (Baileys)...');
-        const provider = createProvider(BaileysProvider);
+        connectionStatus = 'initializing_engine';
+
+        const provider = createProvider(BaileysProvider, {
+            writePort: false, // Desactivamos escritura de puerto de Baileys para evitar conflictos si existen
+            phoneNumber: undefined
+        });
         (global as any).baileysProvider = provider;
 
         provider.on('qr', (qr: string) => {
+            console.log('✨ [DEBUG]: QR RECIBIDO EN MOTOR');
             currentQR = qr;
             connectionStatus = 'qr';
-            console.log('✨ [SISTEMA]: QR GENERADO.');
         });
 
         provider.on('ready', () => {
+            console.log('✅ [DEBUG]: MOTOR LISTO');
             currentQR = '';
             connectionStatus = 'ready';
-            console.log('✅ Conexión con WhatsApp Lista 🚀');
         });
 
-        provider.on('auth_failure', (msg: string) => {
-            console.error('❌ Error de Autenticación WhatsApp:', msg);
-            connectionStatus = 'auth_failed';
-        });
-
-        // 5. Puente "Stealth" hacia The Oracle
-        console.log('🌉 Configurando puente de eventos...');
         const bridgeFlow = addKeyword(EVENTS.WELCOME)
             .addAction(async (ctx: any, { provider }) => {
                 if (ctx.from === 'status@broadcast') return;
-
                 try {
                     const evolutionPayload = {
                         event: "messages.upsert",
@@ -156,33 +123,32 @@ const main = async () => {
                                     id: ctx.key?.id || `msg-${Date.now()}`
                                 },
                                 pushName: ctx.name || "Contacto",
-                                message: {
-                                    conversation: ctx.body
-                                },
+                                message: { conversation: ctx.body },
                                 messageTimestamp: Math.floor(Date.now() / 1000)
                             }]
                         }
                     };
-
-                    await axios.post(`${cleanApiUrl}/webhooks/evolution/${instanceName}`, evolutionPayload, {
-                        headers: { 'Content-Type': 'application/json' }
-                    });
-                    console.log(`🚀 [Node -> Oracle] Evento enviado a base central (Agency: ${instanceName})`);
-
+                    await axios.post(`${cleanApiUrl}/webhooks/evolution/${instanceName}`, evolutionPayload);
                 } catch (error: any) {
                     console.error('❌ Error enviando a Oracle:', error.message);
                 }
             });
 
         console.log('🚀 Lanzando Bot Engine...');
-        await createBot({
+        // Usamos bot creation sin await para no bloquear el flujo si se queda en idle
+        createBot({
             flow: createFlow([bridgeFlow]),
             provider,
             database: new MemoryDB(),
+        }).then(() => {
+            console.log('📡 Bot Engine iniciado correctamente.');
+        }).catch(err => {
+            console.error('❌ Error iniciando Bot Engine:', err);
         });
 
     } catch (e: any) {
         console.error('❌ Error Crítico:', e.message);
+        connectionStatus = 'error';
     }
 }
 
