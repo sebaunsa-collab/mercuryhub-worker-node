@@ -41,14 +41,21 @@ const validateWebhookData = (data: any) => {
     return !!(data.phoneNumber && data.content);
 };
 
+// SYSTEM MONITORING
+process.on('SIGTERM', () => addLog('⚠️ SIGTERM recibido. El servidor se va a apagar.'));
+process.on('SIGINT', () => addLog('⚠️ SIGINT recibido.'));
+
 const main = async () => {
     addLog('🚀 Iniciando CRMercury Worker Node (Self-Hosted)...');
+
+    // DELAYED BOT START TO PRESERVE BOOT RESOURCES
+    let botStarted = false;
 
     const app = express();
     const PORT = Number(process.env.PORT) || 10000;
     app.use(express.json());
 
-    // UI Endpoints
+    // 1. Iniciar Servidor de Salud INMEDIATAMENTE
     app.get('/health', (req, res) => res.status(200).send('OK'));
     app.get('/', (req, res) => res.send(getDashboardHtml(globalAgencyId)));
     app.get('/api/status', (req, res) => res.json({ status: connectionStatus, qr: currentQR, agencyId: globalAgencyId }));
@@ -67,17 +74,19 @@ const main = async () => {
         setTimeout(() => process.exit(0), 1000);
     });
 
-    app.listen(PORT, '0.0.0.0', () => addLog(`📡 Servidor de control en puerto ${PORT}`));
+    app.listen(PORT, '0.0.0.0', () => {
+        addLog(`📡 Servidor de control activo en puerto ${PORT}`);
+    });
 
     if (!MERCURY_LICENSE_KEY) {
-        addLog('❌ Error: MERCURY_LICENSE_KEY no configurado.');
+        addLog('❌ Error: Falta MERCURY_LICENSE_KEY.');
         connectionStatus = 'config_error';
         return;
     }
 
     try {
         const cleanApiUrl = API_URL.replace(/\/$/, "");
-        addLog(`🔄 Sincronizando con El Oráculo en ${cleanApiUrl}...`);
+        addLog(`🔄 Sincronizando con El Oráculo...`);
         connectionStatus = 'authenticating';
 
         const authResponse = await axios.post(`${cleanApiUrl}/workerauth`, {
@@ -88,7 +97,7 @@ const main = async () => {
         });
 
         if (!authResponse?.data.valid) {
-            addLog('❌ Error: Licencia inválida o rechazada por El Oráculo.');
+            addLog('❌ Error: Licencia inválida.');
             connectionStatus = 'auth_failed';
             return;
         }
@@ -96,7 +105,14 @@ const main = async () => {
         const agencyId = authResponse.data.agencyId;
         const instanceName = authResponse.data.instanceName || agencyId;
         globalAgencyId = agencyId;
+        connectionStatus = 'initializing_engine';
         addLog(`✅ Licencia Válida. Agencia ID: ${agencyId}`);
+
+        // MEMORY MONITOR (Para detectar OOM en Render)
+        setInterval(() => {
+            const memory = process.memoryUsage();
+            addLog(`💾 RSS: ${Math.round(memory.rss / 1024 / 1024)}MB | Heap: ${Math.round(memory.heapUsed / 1024 / 1024)}MB`);
+        }, 12000);
 
         // Evolution API Mirror endpoints
         const evolutionAuthGuard = (req: any, res: any, next: any) => {
@@ -118,73 +134,68 @@ const main = async () => {
             }
         });
 
-        // WhatsApp Strategy
-        addLog('🤖 Preparando motor de WhatsApp (Baileys)...');
-        connectionStatus = 'initializing_engine';
+        // DELAYED BOT ENGINE TO PREVENT BOOT BLOCKING
+        setTimeout(async () => {
+            try {
+                addLog('🤖 Inicializando motor de WhatsApp...');
+                const provider = createProvider(BaileysProvider, {
+                    name: instanceName,
+                    phoneNumber: undefined,
+                    writePort: false
+                });
+                (global as any).baileysProvider = provider;
 
-        const provider = createProvider(BaileysProvider, {
-            name: instanceName,
-            phoneNumber: undefined,
-            writePort: false
-        });
-        (global as any).baileysProvider = provider;
+                provider.on('qr', (qr: string) => {
+                    addLog('✨ [QR] Nuevo código listo.');
+                    currentQR = qr;
+                    connectionStatus = 'qr';
+                });
 
-        provider.on('qr', (qr: string) => {
-            addLog('✨ [QR] Nuevo código generado con éxito.');
-            currentQR = qr;
-            connectionStatus = 'qr';
-        });
+                provider.on('ready', () => {
+                    addLog('✅ [MOTOR] Conectado.');
+                    currentQR = '';
+                    connectionStatus = 'ready';
+                });
 
-        provider.on('ready', () => {
-            addLog('✅ [MOTOR] WhatsApp Conectado y Listo.');
-            currentQR = '';
-            connectionStatus = 'ready';
-        });
-
-        provider.on('auth_failure', (err: any) => {
-            addLog(`❌ [MOTOR] Error de autenticación: ${JSON.stringify(err)}`);
-            connectionStatus = 'auth_failed';
-        });
-
-        const bridgeFlow = addKeyword(EVENTS.WELCOME)
-            .addAction(async (ctx: any, { provider }) => {
-                if (ctx.from === 'status@broadcast') return;
-                try {
-                    const evolutionPayload = {
-                        event: "messages.upsert",
-                        data: {
-                            messages: [{
-                                key: {
-                                    remoteJid: ctx.from.includes('@g.us') ? ctx.from : `${ctx.from}@s.whatsapp.net`,
-                                    fromMe: false,
-                                    id: ctx.key?.id || `msg-${Date.now()}`
-                                },
-                                pushName: ctx.name || "Contacto",
-                                message: { conversation: ctx.body },
-                                messageTimestamp: Math.floor(Date.now() / 1000)
-                            }]
+                const bridgeFlow = addKeyword(EVENTS.WELCOME)
+                    .addAction(async (ctx: any, { provider }) => {
+                        if (ctx.from === 'status@broadcast') return;
+                        try {
+                            const evolutionPayload = {
+                                event: "messages.upsert",
+                                data: {
+                                    messages: [{
+                                        key: {
+                                            remoteJid: ctx.from.includes('@g.us') ? ctx.from : `${ctx.from}@s.whatsapp.net`,
+                                            fromMe: false,
+                                            id: ctx.key?.id || `msg-${Date.now()}`
+                                        },
+                                        pushName: ctx.name || "Contacto",
+                                        message: { conversation: ctx.body },
+                                        messageTimestamp: Math.floor(Date.now() / 1000)
+                                    }]
+                                }
+                            };
+                            await axios.post(`${cleanApiUrl}/webhooks/evolution/${instanceName}`, evolutionPayload);
+                        } catch (error: any) {
+                            addLog(`❌ [Inbound] Error Oracle: ${error.message}`);
                         }
-                    };
-                    await axios.post(`${cleanApiUrl}/webhooks/evolution/${instanceName}`, evolutionPayload);
-                    addLog(`🚀 [Inbound] Mensaje de ${ctx.from} reenviado a la central.`);
-                } catch (error: any) {
-                    addLog(`❌ [Inbound] Error enviando a Oracle: ${error.message}`);
-                }
-            });
+                    });
 
-        addLog('🚀 Lanzando orquestador del bot...');
-        createBot({
-            flow: createFlow([bridgeFlow]),
-            provider,
-            database: new MemoryDB(),
-        }).then(() => {
-            addLog('📡 Orquestador iniciado. Esperando conexión de WhatsApp...');
-        }).catch(err => {
-            addLog(`❌ Error en orquestador: ${err.message}`);
-        });
+                addLog('🚀 Lanzando orquestador...');
+                await createBot({
+                    flow: createFlow([bridgeFlow]),
+                    provider,
+                    database: new MemoryDB(),
+                });
+                addLog('📡 Orquestador iniciado.');
+            } catch (err: any) {
+                addLog(`❌ Error en motor: ${err.message}`);
+            }
+        }, 3000);
 
     } catch (e: any) {
-        addLog(`❌ Error Crítico en main: ${e.message}`);
+        addLog(`❌ Error Crítico: ${e.message}`);
         connectionStatus = 'error';
     }
 }
