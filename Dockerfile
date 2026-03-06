@@ -3,6 +3,7 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
 RUN apk add --no-cache git python3 make g++ libuuid coreutils nano
+RUN npm install
 
 COPY . .
 RUN npm run build
