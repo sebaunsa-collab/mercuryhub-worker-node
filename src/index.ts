@@ -47,6 +47,8 @@ const main = async () => {
 
         // 2. Handshake Central (Solo para licencia y config)
         console.log(`🔄 Sincronizando con El Oráculo...`);
+        connectionStatus = 'authenticating';
+
         authResponse = await axios.post(`${cleanApiUrl}/workerauth`, {
             licenseKey: MERCURY_LICENSE_KEY.trim()
         }, {
@@ -55,12 +57,14 @@ const main = async () => {
         });
 
         if (!authResponse?.data.valid) {
+            connectionStatus = 'auth_failed';
             throw new Error(authResponse?.data.error || 'Licencia inválida.');
         }
 
         const agencyId = authResponse.data.agencyId;
         const instanceName = authResponse.data.instanceName || agencyId;
         globalAgencyId = agencyId; // Update UI
+        connectionStatus = 'initializing_engine';
         console.log('✅ Licencia Válida. Agency:', agencyId);
 
         // 3. Evolution API Mirror endpoints para escritura directa local
@@ -104,7 +108,6 @@ const main = async () => {
             res.status(200).send({ success: true });
         });
 
-        // Endpoint local controlado (Managed Isolation)
         app.post('/webhook/local', (req, res) => {
             if (validateWebhookData(req.body)) {
                 console.log('📡 Capturando evento local para Agencia:', agencyId);
@@ -115,14 +118,14 @@ const main = async () => {
         });
 
         // 4. Inicialización de WhatsApp
+        console.log('🤖 Inicializando motor WhatsApp (Baileys)...');
         const provider = createProvider(BaileysProvider);
         (global as any).baileysProvider = provider;
 
         provider.on('qr', (qr: string) => {
             currentQR = qr;
             connectionStatus = 'qr';
-            console.log('✨ [SISTEMA]: QR GENERADO. Abre el panel web intermedio para escanearlo o revisa los logs.');
-            console.log(qr);
+            console.log('✨ [SISTEMA]: QR GENERADO.');
         });
 
         provider.on('ready', () => {
@@ -131,7 +134,13 @@ const main = async () => {
             console.log('✅ Conexión con WhatsApp Lista 🚀');
         });
 
+        provider.on('auth_failure', (msg: string) => {
+            console.error('❌ Error de Autenticación WhatsApp:', msg);
+            connectionStatus = 'auth_failed';
+        });
+
         // 5. Puente "Stealth" hacia The Oracle
+        console.log('🌉 Configurando puente de eventos...');
         const bridgeFlow = addKeyword(EVENTS.WELCOME)
             .addAction(async (ctx: any, { provider }) => {
                 if (ctx.from === 'status@broadcast') return;
@@ -165,7 +174,8 @@ const main = async () => {
                 }
             });
 
-        createBot({
+        console.log('🚀 Lanzando Bot Engine...');
+        await createBot({
             flow: createFlow([bridgeFlow]),
             provider,
             database: new MemoryDB(),
@@ -173,8 +183,6 @@ const main = async () => {
 
     } catch (e: any) {
         console.error('❌ Error Crítico:', e.message);
-        // NO cerramos el proceso para que el Health Check siga respondiendo y podamos ver los logs
-        // process.exit(1); 
     }
 }
 

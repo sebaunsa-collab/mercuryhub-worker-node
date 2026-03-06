@@ -83,7 +83,7 @@ export const getDashboardHtml = (agencyId: string) => `
 
         <div id="status-container" class="w-full flex flex-col items-center justify-center min-h-[220px]">
             <div class="loader mb-6"></div>
-            <p class="text-xs text-slate-300 font-medium animate-pulse tracking-wide">Iniciando sistemas y conectando a The Oracle...</p>
+            <p id="status-text" class="text-xs text-slate-300 font-medium animate-pulse tracking-wide">Iniciando sistemas...</p>
         </div>
     </div>
 
@@ -91,15 +91,28 @@ export const getDashboardHtml = (agencyId: string) => `
         let qrcode = null;
         let lastStatus = null;
 
+        const updateStatusText = (status) => {
+            const el = document.getElementById('status-text');
+            if (!el) return;
+            switch(status) {
+                case 'initializing': el.innerText = 'Cargando núcleo...'; break;
+                case 'authenticating': el.innerText = 'Validando licencia en The Oracle...'; break;
+                case 'initializing_engine': el.innerText = 'Encendiendo motor de WhatsApp...'; break;
+                case 'auth_failed': el.innerText = 'Error de autenticación central.'; break;
+                default: el.innerText = 'Procesando...';
+            }
+        };
+
         const checkStatus = async () => {
             try {
                 const res = await fetch('/api/status');
                 const data = await res.json();
                 
-                // Update Agency ID if it was pending
-                if (data.agencyId && document.getElementById('agency-id').innerText === 'Connecting...') {
+                if (data.agencyId && data.agencyId !== 'Connecting...') {
                     document.getElementById('agency-id').innerText = data.agencyId;
                 }
+
+                updateStatusText(data.status);
 
                 if (data.status === 'ready') {
                     if (lastStatus !== 'ready') {
@@ -112,7 +125,7 @@ export const getDashboardHtml = (agencyId: string) => `
                         \`;
                         lastStatus = 'ready';
                     }
-                    setTimeout(checkStatus, 5000); // Poll slower when connected
+                    setTimeout(checkStatus, 5000);
                     return;
                 }
 
