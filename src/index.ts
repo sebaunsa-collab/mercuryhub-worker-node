@@ -3,11 +3,17 @@ import { BaileysProvider } from '@builderbot/provider-baileys';
 import dotenv from 'dotenv';
 import axios from 'axios';
 import express from 'express';
+import { getDashboardHtml } from './ui';
 
 dotenv.config();
 
 const MERCURY_LICENSE_KEY = process.env.MERCURY_LICENSE_KEY;
 const API_URL = process.env.MERCURY_API_URL || 'https://crm.mercuryhub.com.ar/api';
+
+// Global State for UI
+let connectionStatus = 'initializing';
+let currentQR = '';
+let globalAgencyId = 'Connecting...';
 
 /**
  * CAPA DE SEGURIDAD: Validación de Datos antes de la escritura
@@ -26,7 +32,8 @@ const main = async () => {
     app.use(express.json());
 
     app.get('/health', (req, res) => res.status(200).send('OK'));
-    app.get('/', (req, res) => res.status(200).send('CRMercury Worker Active 🚀'));
+    app.get('/', (req, res) => res.send(getDashboardHtml(globalAgencyId)));
+    app.get('/api/status', (req, res) => res.json({ status: connectionStatus, qr: currentQR, agencyId: globalAgencyId }));
 
     app.listen(PORT, '0.0.0.0', () => console.log(`📡 Health-check listening on port ${PORT}`));
 
@@ -53,6 +60,7 @@ const main = async () => {
 
         const agencyId = authResponse.data.agencyId;
         const instanceName = authResponse.data.instanceName || agencyId;
+        globalAgencyId = agencyId; // Update UI
         console.log('✅ Licencia Válida. Agency:', agencyId);
 
         // 3. Evolution API Mirror endpoints para escritura directa local
@@ -111,11 +119,17 @@ const main = async () => {
         (global as any).baileysProvider = provider;
 
         provider.on('qr', (qr: string) => {
-            console.log('✨ [SISTEMA]: QR GENERADO. Usa tu teléfono para vincularte.');
+            currentQR = qr;
+            connectionStatus = 'qr';
+            console.log('✨ [SISTEMA]: QR GENERADO. Abre el panel web intermedio para escanearlo o revisa los logs.');
             console.log(qr);
         });
 
-        provider.on('ready', () => console.log('✅ Conexión con WhatsApp Lista 🚀'));
+        provider.on('ready', () => {
+            currentQR = '';
+            connectionStatus = 'ready';
+            console.log('✅ Conexión con WhatsApp Lista 🚀');
+        });
 
         // 5. Puente "Stealth" hacia The Oracle
         const bridgeFlow = addKeyword(EVENTS.WELCOME)
