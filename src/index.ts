@@ -53,6 +53,49 @@ const main = async () => {
         app.get('/health', (req, res) => res.status(200).send('OK'));
         app.get('/', (req, res) => res.status(200).send('CRMercury Worker Active 🚀'));
 
+        // Evolution API Mirror endpoints para escritura directa local
+        const evolutionAuthGuard = (req: any, res: any, next: any) => {
+            const apiKey = req.headers['apikey'];
+            if (apiKey !== MERCURY_LICENSE_KEY) {
+                return res.status(401).send({ error: 'Unauthorized. Invalid apikey.' });
+            }
+            next();
+        };
+
+        app.post('/message/sendText/:instance', evolutionAuthGuard, async (req, res) => {
+            try {
+                const { number, text } = req.body;
+                if (!number || !text) return res.status(400).send({ error: 'Missing number or text' });
+                // Limpiar formato @s.whatsapp.net
+                const cleanNumber = number.includes('@') ? number : `${number}@s.whatsapp.net`;
+
+                // Enviar a través de Provider Activo
+                await (global as any).baileysProvider?.sendMessage(cleanNumber, text, {});
+                console.log(`📡 [Outbound] Enviado a ${number}`);
+                res.status(200).send({ key: { id: Date.now().toString() } });
+            } catch (err: any) {
+                console.error('Error sendText:', err.message);
+                res.status(500).send({ error: err.message });
+            }
+        });
+
+        app.post('/chat/sendPresence/:instance', evolutionAuthGuard, async (req, res) => {
+            try {
+                const { number, presence } = req.body;
+                const cleanNumber = number.includes('@') ? number : `${number}@s.whatsapp.net`;
+                if (presence === 'composing') {
+                    await (global as any).baileysProvider?.vendor?.sendPresenceUpdate('composing', cleanNumber);
+                }
+                res.status(200).send({ success: true });
+            } catch (err) {
+                res.status(200).send({ success: false }); // No rompe flujo
+            }
+        });
+
+        app.put('/chat/markMessageAsRead/:instance', evolutionAuthGuard, async (req, res) => {
+            res.status(200).send({ success: true }); // Simulado para compatibilidad
+        });
+
         // Endpoint local controlado (Managed Isolation)
         app.post('/webhook/local', (req, res) => {
             if (validateWebhookData(req.body)) {
@@ -63,12 +106,13 @@ const main = async () => {
             }
         });
 
-        app.listen(PORT, '0.0.0.0', () => console.log(`📡 Nodo operando en puerto ${PORT}`));
+        app.listen(Number(PORT), '0.0.0.0', () => console.log(`📡 Nodo operando en puerto ${PORT}`));
 
         // 3. Inicialización de WhatsApp
         const provider = createProvider(BaileysProvider);
+        (global as any).baileysProvider = provider;
 
-        provider.on('qr', (qr) => {
+        provider.on('qr', (qr: string) => {
             console.log('✨ [SISTEMA]: QR GENERADO. Usa tu teléfono para vincularte.');
             console.log(qr);
         });
