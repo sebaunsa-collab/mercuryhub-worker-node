@@ -22,9 +22,20 @@ const addLog = (msg: string) => {
     const time = new Date().toLocaleTimeString();
     const fullMsg = `[${time}] ${msg}`;
     logs.push(fullMsg);
-    if (logs.length > 50) logs.shift();
+    if (logs.length > 100) logs.shift();
     console.log(fullMsg);
 };
+
+// CRASH DETECTION
+process.on('uncaughtException', (err) => {
+    addLog(`❌ CRUSH: Uncaught Exception: ${err.message}`);
+    console.error(err);
+});
+
+process.on('unhandledRejection', (reason: any) => {
+    addLog(`❌ CRUSH: Unhandled Rejection: ${reason?.message || reason}`);
+    console.error(reason);
+});
 
 const validateWebhookData = (data: any) => {
     return !!(data.phoneNumber && data.content);
