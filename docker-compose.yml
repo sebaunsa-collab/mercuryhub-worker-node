@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  crmercury-worker:
+    build: .
+    restart: always
+    environment:
+      - NODE_ENV=production
+      - MERCURY_LICENSE_KEY=${MERCURY_LICENSE_KEY}
+      - MERCURY_API_URL=${MERCURY_API_URL:-https://app.crmercury.com/api}
+    volumes:
+      - session_data:/app/session
+    ports:
+      - "3008:3008"
+
+volumes:
+  session_data:

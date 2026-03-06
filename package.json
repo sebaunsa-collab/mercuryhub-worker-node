@@ -1,0 +1,24 @@
+{
+    "name": "crmercury-worker-node",
+    "version": "1.0.0",
+    "description": "El nodo de comunicacion descentralizado de CRMercury",
+    "main": "dist/index.js",
+    "scripts": {
+        "start": "node dist/index.js",
+        "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+        "build": "tsc"
+    },
+    "dependencies": {
+        "@builderbot/bot": "latest",
+        "@builderbot/provider-baileys": "latest",
+        "axios": "^1.7.2",
+        "dotenv": "^16.4.5",
+        "express": "^4.19.2"
+    },
+    "devDependencies": {
+        "@types/express": "^4.17.21",
+        "@types/node": "^20.12.12",
+        "ts-node-dev": "^2.0.0",
+        "typescript": "^5.4.5"
+    }
+}
