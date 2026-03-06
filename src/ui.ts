@@ -5,10 +5,8 @@ export const getDashboardHtml = (agencyId: string) => `
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CRMercury Node</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=Fira+Code:wght@400&display=swap');
         body {
             background: #020617;
             background-image: radial-gradient(circle at 50% 0%, #0B2245 0%, #020617 70%);
@@ -28,13 +26,6 @@ export const getDashboardHtml = (agencyId: string) => `
             border: 1px solid rgba(255, 255, 255, 0.05);
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), inset 0 0 20px rgba(255, 255, 255, 0.02);
             border-radius: 28px;
-            position: relative;
-        }
-        .glass-panel::before {
-            content: '';
-            position: absolute;
-            top: 0; left: 10%; right: 10%; height: 1px;
-            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
         }
         .qr-placeholder {
             background: #ffffff;
@@ -46,45 +37,54 @@ export const getDashboardHtml = (agencyId: string) => `
             border: 3px solid rgba(255, 255, 255, 0.05);
             border-top: 3px solid #E8DCC4;
             border-radius: 50%;
-            width: 48px;
-            height: 48px;
+            width: 40px;
+            height: 40px;
             animation: spin 1s linear infinite;
         }
         @keyframes spin { 100% { transform: rotate(360deg); } }
+        .log-container {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 12px;
+            padding: 12px;
+            font-family: 'Fira Code', monospace;
+            font-size: 10px;
+            color: #94a3b8;
+            height: 120px;
+            overflow-y: auto;
+            width: 100%;
+            text-align: left;
+            margin-top: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .log-line { border-bottom: 1px solid rgba(255, 255, 255, 0.02); padding: 2px 0; }
         .gradient-text {
             background: linear-gradient(135deg, #E8DCC4 0%, #C8B898 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
-        .glow {
-            text-shadow: 0 0 20px rgba(232, 220, 196, 0.3);
-        }
-        .ambient-light {
-            position: absolute;
-            top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            width: 300px; height: 300px;
-            background: rgba(232, 220, 196, 0.05);
-            filter: blur(80px);
-            border-radius: 50%;
-            z-index: -1;
-            pointer-events: none;
-        }
     </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
 <body>
-    <div class="ambient-light"></div>
-    <div class="glass-panel w-full max-w-sm p-8 flex flex-col items-center text-center mx-4 z-10 transition-all duration-500">
-        <div class="mb-8">
-            <h1 class="text-2xl font-extrabold tracking-tight gradient-text glow mb-1">CRMercury Node</h1>
-            <p class="text-[10px] text-slate-400 font-mono tracking-widest uppercase mb-1">Self-Hosted Antenna</p>
-            <p class="text-[9px] text-[#E8DCC4]/50 font-mono">Agency: <span id="agency-id">${agencyId}</span></p>
+    <div class="glass-panel w-full max-w-sm p-8 flex flex-col items-center text-center mx-4 z-10">
+        <div style="margin-bottom: 32px">
+            <h1 style="font-size: 24px; font-weight: 800; margin: 0" class="gradient-text">CRMercury Node</h1>
+            <p style="font-size: 10px; color: #94a3b8; letter-spacing: 0.1em; text-transform: uppercase; margin: 4px 0">Self-Hosted Antenna</p>
+            <p style="font-size: 9px; opacity: 0.5; font-family: monospace; margin: 0">Agency: <span id="agency-id">${agencyId}</span></p>
         </div>
 
-        <div id="status-container" class="w-full flex flex-col items-center justify-center min-h-[220px]">
-            <div class="loader mb-6"></div>
-            <p id="status-text" class="text-xs text-slate-300 font-medium animate-pulse tracking-wide">Iniciando sistemas...</p>
+        <div id="status-container" style="min-height: 220px; width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center">
+            <div class="loader" style="margin-bottom: 24px"></div>
+            <p id="status-text" style="font-size: 12px; color: #cbd5e1; animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite">Sincronizando sistemas...</p>
         </div>
+
+        <div class="log-container" id="log-box">
+            <div class="log-line">Esperando logs del servidor...</div>
+        </div>
+        
+        <button onclick="resetSession()" style="margin-top: 16px; background: transparent; border: 1px solid rgba(232, 220, 196, 0.2); color: #C8B898; font-size: 10px; padding: 6px 12px; border-radius: 6px; cursor: pointer; transition: all 0.3s">
+            Hard Reset Session
+        </button>
     </div>
 
     <script>
@@ -96,10 +96,29 @@ export const getDashboardHtml = (agencyId: string) => `
             if (!el) return;
             switch(status) {
                 case 'initializing': el.innerText = 'Cargando núcleo...'; break;
-                case 'authenticating': el.innerText = 'Validando licencia en The Oracle...'; break;
-                case 'initializing_engine': el.innerText = 'Encendiendo motor de WhatsApp...'; break;
-                case 'auth_failed': el.innerText = 'Error de autenticación central.'; break;
+                case 'authenticating': el.innerText = 'Validando licencia...'; break;
+                case 'initializing_engine': el.innerText = 'Encendiendo motor...'; break;
+                case 'qr': el.innerText = 'Esperando escaneo...'; break;
+                case 'ready': el.innerText = 'Conectado'; el.style.color = '#4ade80'; break;
+                case 'auth_failed': el.innerText = 'Error de licencia'; el.style.color = '#f87171'; break;
                 default: el.innerText = 'Procesando...';
+            }
+        };
+
+        const fetchLogs = async () => {
+            try {
+                const res = await fetch('/api/logs');
+                const data = await res.json();
+                const logBox = document.getElementById('log-box');
+                logBox.innerHTML = data.logs.map(l => \`<div class="log-line">\${l}</div>\`).join('');
+                logBox.scrollTop = logBox.scrollHeight;
+            } catch(e) {}
+        };
+
+        const resetSession = async () => {
+            if(confirm('¿Seguro que quieres reiniciar la sesión? Se borrarán los datos temporales del worker.')) {
+                await fetch('/api/reset', { method: 'POST' });
+                location.reload();
             }
         };
 
@@ -117,31 +136,27 @@ export const getDashboardHtml = (agencyId: string) => `
                 if (data.status === 'ready') {
                     if (lastStatus !== 'ready') {
                         document.getElementById('status-container').innerHTML = \`
-                            <div class="w-20 h-20 bg-green-500/10 border border-green-500/20 rounded-full flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(34,197,94,0.2)]">
-                                <svg class="w-10 h-10 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                            <div style="width: 80px; height: 80px; background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.2); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 24px">
+                                <svg style="width: 40px; height: 40px; color: #4ade80" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                             </div>
-                            <h2 class="text-lg font-bold text-green-400 mb-2 tracking-wide">Conexión Establecida</h2>
-                            <p class="text-xs text-slate-400">El nodo está operando de forma autónoma.</p>
+                            <h2 style="font-size: 18px; font-weight: 700; color: #4ade80; margin: 0 0 8px 0">Nodo Online</h2>
+                            <p style="font-size: 11px; color: #94a3b8; margin: 0">Operando con éxito.</p>
                         \`;
                         lastStatus = 'ready';
                     }
-                    setTimeout(checkStatus, 5000);
-                    return;
                 }
 
                 if (data.status === 'qr' && data.qr) {
                     if (lastStatus !== 'qr') {
                         document.getElementById('status-container').innerHTML = \`
-                            <div class="qr-placeholder shadow-2xl shadow-[#E8DCC4]/10 mb-6 transition-all" id="qrcode"></div>
-                            <h2 class="text-sm font-semibold text-slate-200 mb-2 tracking-wide">Escanea el Integrador</h2>
-                            <p class="text-xs text-slate-400">Abre WhatsApp en tu teléfono y <br>vincula este dispositivo.</p>
+                            <div class="qr-placeholder" id="qrcode" style="margin-bottom: 24px"></div>
+                            <h2 style="font-size: 14px; font-weight: 600; color: #f1f5f9; margin: 0 0 8px 0">Escanea el Integrador</h2>
+                            <p style="font-size: 11px; color: #94a3b8; margin: 0">Abre WhatsApp > Dispositivos vinculados.</p>
                         \`;
                         qrcode = new QRCode(document.getElementById("qrcode"), {
                             text: data.qr,
-                            width: 220,
-                            height: 220,
-                            colorDark : "#0A1930",
-                            colorLight : "#ffffff",
+                            width: 200, height: 200,
+                            colorDark : "#020617", colorLight : "#ffffff",
                             correctLevel : QRCode.CorrectLevel.M
                         });
                         lastStatus = 'qr';
@@ -150,15 +165,13 @@ export const getDashboardHtml = (agencyId: string) => `
                         qrcode.makeCode(data.qr);
                     }
                 }
-
-            } catch (err) {
-                console.error(err);
-            }
-
-            setTimeout(checkStatus, 2000);
+            } catch (err) {}
         };
 
+        setInterval(checkStatus, 2000);
+        setInterval(fetchLogs, 3000);
         checkStatus();
+        fetchLogs();
     </script>
 </body>
 </html>
