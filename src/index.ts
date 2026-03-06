@@ -6,6 +6,7 @@ import express from 'express';
 import { getDashboardHtml } from './ui';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 
 dotenv.config();
 
@@ -37,49 +38,47 @@ process.on('unhandledRejection', (reason: any) => {
     console.error(reason);
 });
 
-const validateWebhookData = (data: any) => {
-    return !!(data.phoneNumber && data.content);
-};
-
 // SYSTEM MONITORING
-process.on('SIGTERM', () => addLog('⚠️ SIGTERM recibido. El servidor se va a apagar.'));
-process.on('SIGINT', () => addLog('⚠️ SIGINT recibido.'));
+process.on('SIGTERM', () => addLog('⚠️ SIGTERM recibido (Render Apagando).'));
 
 const main = async () => {
-    addLog('🚀 Iniciando CRMercury Worker Node (Self-Hosted)...');
-
-    // DELAYED BOT START TO PRESERVE BOOT RESOURCES
-    let botStarted = false;
+    addLog('🚀 CRMercury Worker Node (Self-Hosted) - Antigravity Build');
 
     const app = express();
     const PORT = Number(process.env.PORT) || 10000;
     app.use(express.json());
 
-    // 1. Iniciar Servidor de Salud INMEDIATAMENTE
+    // 1. HTTP Server setup (Prioritario)
     app.get('/health', (req, res) => res.status(200).send('OK'));
+    app.get('/ping', (req, res) => res.status(200).send('pong'));
     app.get('/', (req, res) => res.send(getDashboardHtml(globalAgencyId)));
     app.get('/api/status', (req, res) => res.json({ status: connectionStatus, qr: currentQR, agencyId: globalAgencyId }));
     app.get('/api/logs', (req, res) => res.json({ logs }));
 
     app.post('/api/reset', (req, res) => {
-        addLog('⚠️ Reset solicitado por el usuario.');
+        addLog('⚠️ Realizando Hard Reset de sesión...');
         const authPath = path.join(process.cwd(), '.baileys_auth');
         if (fs.existsSync(authPath)) {
             fs.rmSync(authPath, { recursive: true, force: true });
-            addLog('✅ Carpeta de sesión eliminada.');
+            addLog('✅ Datos de sesión eliminados.');
         }
         res.status(200).json({ success: true });
-        // No salimos del proceso aquí, dejamos que el usuario refresque. 
-        // En Render el contenedor se reiniciará si el health check falla o si provocamos un error controlado.
         setTimeout(() => process.exit(0), 1000);
     });
 
     app.listen(PORT, '0.0.0.0', () => {
-        addLog(`📡 Servidor de control activo en puerto ${PORT}`);
+        addLog(`📡 Panel de control desplegado en puerto ${PORT}`);
     });
 
+    // MEMORY & CPU MONITOR (Resistente a bloqueos)
+    setInterval(() => {
+        const memory = process.memoryUsage();
+        const load = os.loadavg()[0];
+        addLog(`📊 SYS: RSS=${Math.round(memory.rss / 1024 / 1024)}MB | CPU=${load.toFixed(2)} | Status=${connectionStatus}`);
+    }, 15000);
+
     if (!MERCURY_LICENSE_KEY) {
-        addLog('❌ Error: Falta MERCURY_LICENSE_KEY.');
+        addLog('❌ Error: Falta MERCURY_LICENSE_KEY en entorno.');
         connectionStatus = 'config_error';
         return;
     }
@@ -97,22 +96,16 @@ const main = async () => {
         });
 
         if (!authResponse?.data.valid) {
-            addLog('❌ Error: Licencia inválida.');
+            addLog(`❌ Licencia rechazada: ${authResponse?.data.error || 'Inválida'}`);
             connectionStatus = 'auth_failed';
             return;
         }
 
-        const agencyId = authResponse.data.agencyId;
+        const { agencyId, tenantSlug } = authResponse.data;
         const instanceName = authResponse.data.instanceName || agencyId;
         globalAgencyId = agencyId;
         connectionStatus = 'initializing_engine';
-        addLog(`✅ Licencia Válida. Agencia ID: ${agencyId}`);
-
-        // MEMORY MONITOR (Para detectar OOM en Render)
-        setInterval(() => {
-            const memory = process.memoryUsage();
-            addLog(`💾 RSS: ${Math.round(memory.rss / 1024 / 1024)}MB | Heap: ${Math.round(memory.heapUsed / 1024 / 1024)}MB`);
-        }, 12000);
+        addLog(`✅ Licencia validada para ${tenantSlug} (${agencyId})`);
 
         // Evolution API Mirror endpoints
         const evolutionAuthGuard = (req: any, res: any, next: any) => {
@@ -126,35 +119,43 @@ const main = async () => {
                 const { number, text } = req.body;
                 const cleanNumber = number.includes('@') ? number : `${number}@s.whatsapp.net`;
                 await (global as any).baileysProvider?.sendMessage(cleanNumber, text, {});
-                addLog(`📡 [Outbound] Mensaje enviado a ${number}`);
+                addLog(`📡 [Outbound] Enviado a ${number}`);
                 res.status(200).send({ key: { id: Date.now().toString() } });
             } catch (err: any) {
-                addLog(`❌ Error enviando mensaje: ${err.message}`);
+                addLog(`❌ Error Outbound: ${err.message}`);
                 res.status(500).send({ error: err.message });
             }
         });
 
-        // DELAYED BOT ENGINE TO PREVENT BOOT BLOCKING
+        // 2. DELAYED BOT ENGINE (Estrategia Anti-Crash para Render)
+        // Esperamos 8 segundos para que el sistema esté estable antes de la carga pesada.
         setTimeout(async () => {
             try {
-                addLog('🤖 Inicializando motor de WhatsApp...');
+                addLog('🤖 Iniciando motor Baileys (Multi-Device)...');
+
                 const provider = createProvider(BaileysProvider, {
                     name: instanceName,
                     phoneNumber: undefined,
                     writePort: false
                 });
+
                 (global as any).baileysProvider = provider;
 
                 provider.on('qr', (qr: string) => {
-                    addLog('✨ [QR] Nuevo código listo.');
+                    addLog('✨ [QR] Nuevo código generado con éxito.');
                     currentQR = qr;
                     connectionStatus = 'qr';
                 });
 
                 provider.on('ready', () => {
-                    addLog('✅ [MOTOR] Conectado.');
+                    addLog('✅ [MOTOR] Nodo Conectado a WhatsApp.');
                     currentQR = '';
                     connectionStatus = 'ready';
+                });
+
+                provider.on('auth_failure', (err) => {
+                    addLog(`❌ [MOTOR] Error de Auth: ${JSON.stringify(err)}`);
+                    connectionStatus = 'auth_failed';
                 });
 
                 const bridgeFlow = addKeyword(EVENTS.WELCOME)
@@ -178,21 +179,22 @@ const main = async () => {
                             };
                             await axios.post(`${cleanApiUrl}/webhooks/evolution/${instanceName}`, evolutionPayload);
                         } catch (error: any) {
-                            addLog(`❌ [Inbound] Error Oracle: ${error.message}`);
+                            addLog(`❌ [Inbound] Error Oracle Sync: ${error.message}`);
                         }
                     });
 
-                addLog('🚀 Lanzando orquestador...');
+                addLog('🚀 Lanzando Orquestador Legion...');
                 await createBot({
                     flow: createFlow([bridgeFlow]),
                     provider,
                     database: new MemoryDB(),
                 });
-                addLog('📡 Orquestador iniciado.');
+                addLog('📡 Orquestador activo. Esperando conexión.');
+
             } catch (err: any) {
-                addLog(`❌ Error en motor: ${err.message}`);
+                addLog(`❌ Error en Engine Init: ${err.message}`);
             }
-        }, 3000);
+        }, 8000);
 
     } catch (e: any) {
         addLog(`❌ Error Crítico: ${e.message}`);
